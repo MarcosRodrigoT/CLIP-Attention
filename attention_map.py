@@ -5,6 +5,9 @@ import torchvision
 import clip
 import json
 import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")  # Use Agg backend for matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.animation import FuncAnimation
@@ -180,6 +183,11 @@ def main():
         VIDEO = os.path.join("wikihow_val", video)
         with open("wikihowto_annt.json", "r") as f:
             GROUND_TRUTH = json.load(f)[f"{VIDEO.split('/')[-1].split('.')[0]}"]
+
+        # Skip this iteration if there is no ground truth for this video
+        if not GROUND_TRUTH:
+            print(f"Skipping video {video}")
+            continue
 
         CREATE_VIDEO = True
 
