@@ -1,4 +1,6 @@
 venv/
 *.mp4
+*.png
+*.jpg
 *.vtt
 *.json
