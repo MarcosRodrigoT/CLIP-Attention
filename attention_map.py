@@ -1,3 +1,4 @@
+import os
 import cv2
 import torch
 import torchvision
@@ -108,7 +109,7 @@ def plot_similarity(video, similarity_matrix, ground_truth):
 
     # Save the plot
     plt.tight_layout()
-    plt.savefig("Cosine_sim.png")
+    plt.savefig(f"results/{video.split('/')[-1].split('.')[0]}.png")
 
     return fig, axes
 
@@ -143,7 +144,7 @@ def create_video_and_plot(video_path, similarity_matrix, ground_truth):
     fourcc = cv2.VideoWriter_fourcc(*"XVID")
     out_width = 2 * width * scale_factor
     out_height = height * scale_factor
-    out = cv2.VideoWriter("Cosine_sim.avi", fourcc, fps, (out_width, out_height))
+    out = cv2.VideoWriter(f"results/{video_path.split('/')[-1].split('.')[0]}.avi", fourcc, fps, (out_width, out_height))
 
     for frame_idx in range(frame_count):
         ret, frame = cap.read()
@@ -173,39 +174,41 @@ def create_video_and_plot(video_path, similarity_matrix, ground_truth):
 
 
 def main():
-    VIDEO = "wikihow_val/Act-on-a-Movie-Date.mp4"
-    TRANSCRIPT = "wikihow_val_transcripts/Act-on-a-Movie-Date.vtt"
-    with open("wikihowto_annt.json", "r") as f:
-        GROUND_TRUTH = json.load(f)[f"{VIDEO.split('/')[-1].split('.')[0]}"]
+    for i, video in enumerate(sorted(os.listdir("wikihow_val"))):
+        print(f"Processing video {i}/{len(os.listdir('wikihow_val')) - 1}")
 
-    CREATE_VIDEO = True
+        VIDEO = os.path.join("wikihow_val", video)
+        with open("wikihowto_annt.json", "r") as f:
+            GROUND_TRUTH = json.load(f)[f"{VIDEO.split('/')[-1].split('.')[0]}"]
 
-    # Load CLIP and its preprocess
-    model, preprocess, device = load_model()
+        CREATE_VIDEO = True
 
-    # Load video
-    frames, audio, metadata = load_video(VIDEO)
+        # Load CLIP and its preprocess
+        model, preprocess, device = load_model()
 
-    # Extract info from the video
-    video_fps = metadata["video_fps"]
-    audio_fps = metadata["audio_fps"]
-    num_frames, height, width, channels = frames.shape
+        # Load video
+        frames, audio, metadata = load_video(VIDEO)
 
-    # Extract CLIP embeddings from each frame
-    embeddings = []
-    for i, frame in enumerate(frames):
-        print(f"Processing frame {i}/{len(frames) - 1}", end="\r")
-        embeddings.append(extract_embeddings(frame, model, preprocess, device))
+        # Extract info from the video
+        video_fps = metadata["video_fps"]
+        audio_fps = metadata["audio_fps"]
+        num_frames, height, width, channels = frames.shape
 
-    # Create a 2D cross-similarity matrix
-    similarity_matrix = cross_similarity(embeddings)
+        # Extract CLIP embeddings from each frame
+        embeddings = []
+        for j, frame in enumerate(frames):
+            print(f"\t- Processing frame {j}/{len(frames) - 1}", end="\r")
+            embeddings.append(extract_embeddings(frame, model, preprocess, device))
 
-    if CREATE_VIDEO:
-        # Create animated video and plots
-        create_video_and_plot(VIDEO, similarity_matrix, GROUND_TRUTH)
-    else:
-        # Convert the 2D matrix to an image
-        plot_similarity(VIDEO, similarity_matrix, GROUND_TRUTH)
+        # Create a 2D cross-similarity matrix
+        similarity_matrix = cross_similarity(embeddings)
+
+        if CREATE_VIDEO:
+            # Create animated video and plots
+            create_video_and_plot(VIDEO, similarity_matrix, GROUND_TRUTH)
+        else:
+            # Convert the 2D matrix to an image
+            plot_similarity(VIDEO, similarity_matrix, GROUND_TRUTH)
 
 
 if __name__ == "__main__":
