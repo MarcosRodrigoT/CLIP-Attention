@@ -1,4 +1,5 @@
 venv/
+*.avi
 *.mp4
 *.png
 *.jpg

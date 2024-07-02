@@ -1,3 +1,4 @@
+import cv2
 import torch
 import torchvision
 import clip
@@ -5,6 +6,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.animation import FuncAnimation
 
 
 def load_video(filepath):
@@ -108,12 +110,75 @@ def plot_similarity(video, similarity_matrix, ground_truth):
     plt.tight_layout()
     plt.savefig("Cosine_sim.png")
 
+    return fig, axes
+
+
+def create_video_and_plot(video_path, similarity_matrix, ground_truth):
+    # Scaling factor for resolution
+    scale_factor = 4
+
+    # Get video properties
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Plot similarity matrix and rectangles
+    fig, axes = plot_similarity(video_path, similarity_matrix, ground_truth)
+    ax1, ax2 = axes
+
+    # Create vertical lines to move along the frames
+    line1 = ax1.axvline(x=0, color="green", linestyle="-")
+    line2 = ax2.axvline(x=0, color="green", linestyle="-")
+
+    def update(frame):
+        # Update the vertical lines
+        line1.set_xdata([frame])
+        line2.set_xdata([frame])
+        fig.canvas.draw()
+        return [line1, line2]
+
+    # Create VideoWriter object to save the output video with increased resolution
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    out_width = 2 * width * scale_factor
+    out_height = height * scale_factor
+    out = cv2.VideoWriter("Cosine_sim.avi", fourcc, fps, (out_width, out_height))
+
+    for frame_idx in range(frame_count):
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Update the animation
+        update(frame_idx)
+
+        # Convert the plot to an image
+        plot_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plot_img = plot_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        plot_img = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR
+
+        # Scale the video frame and the plot image
+        frame = cv2.resize(frame, (width * scale_factor, height * scale_factor))
+        plot_img = cv2.resize(plot_img, (width * scale_factor, height * scale_factor))
+
+        # Combine the video frame and the plot image
+        combined_img = np.hstack((frame, plot_img))
+
+        # Write the frame to the output video
+        out.write(combined_img)
+
+    cap.release()
+    out.release()
+
 
 def main():
     VIDEO = "wikihow_val/Act-on-a-Movie-Date.mp4"
     TRANSCRIPT = "wikihow_val_transcripts/Act-on-a-Movie-Date.vtt"
     with open("wikihowto_annt.json", "r") as f:
         GROUND_TRUTH = json.load(f)[f"{VIDEO.split('/')[-1].split('.')[0]}"]
+
+    CREATE_VIDEO = True
 
     # Load CLIP and its preprocess
     model, preprocess, device = load_model()
@@ -135,8 +200,12 @@ def main():
     # Create a 2D cross-similarity matrix
     similarity_matrix = cross_similarity(embeddings)
 
-    # Convert the 2D matrix to an image
-    plot_similarity(VIDEO, similarity_matrix, GROUND_TRUTH)
+    if CREATE_VIDEO:
+        # Create animated video and plots
+        create_video_and_plot(VIDEO, similarity_matrix, GROUND_TRUTH)
+    else:
+        # Convert the 2D matrix to an image
+        plot_similarity(VIDEO, similarity_matrix, GROUND_TRUTH)
 
 
 if __name__ == "__main__":
