@@ -50,11 +50,11 @@ def cross_similarity(embeddings):
 def plot_similarity(video, similarity_matrix, ground_truth):
     num_frames = similarity_matrix.shape[0]
 
-    # Pad ground truth with zeros if it's shorter than the number of frames
+    # Pad ground truth with zeros or truncate
     if len(ground_truth) < num_frames:
         ground_truth = ground_truth + [0] * (num_frames - len(ground_truth))
     elif len(ground_truth) > num_frames:
-        raise ValueError("Ground truth list length must not be longer than the number of frames")
+        ground_truth = ground_truth[:num_frames]
 
     # Convert the tensor to a NumPy array
     similarity_matrix = similarity_matrix.cpu().numpy()
@@ -189,7 +189,7 @@ def main():
             print(f"Skipping video {video}")
             continue
 
-        CREATE_VIDEO = True
+        CREATE_VIDEO = False
 
         # Load CLIP and its preprocess
         model, preprocess, device = load_model()
