@@ -112,7 +112,7 @@ def plot_similarity(video, similarity_matrix, ground_truth):
 
     # Save the plot
     plt.tight_layout()
-    plt.savefig(f"results/{video.split('/')[-1].split('.')[0]}.png")
+    plt.savefig(f"results/frames_frames/{video.split('/')[-1].split('.')[0]}.png")
 
     return fig, axes
 
@@ -147,7 +147,7 @@ def create_video_and_plot(video_path, similarity_matrix, ground_truth):
     fourcc = cv2.VideoWriter_fourcc(*"XVID")
     out_width = 2 * width * scale_factor
     out_height = height * scale_factor
-    out = cv2.VideoWriter(f"results/{video_path.split('/')[-1].split('.')[0]}.avi", fourcc, fps, (out_width, out_height))
+    out = cv2.VideoWriter(f"results/frames_frames/{video_path.split('/')[-1].split('.')[0]}.avi", fourcc, fps, (out_width, out_height))
 
     for frame_idx in range(frame_count):
         ret, frame = cap.read()
