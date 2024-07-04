@@ -176,7 +176,7 @@ def create_video_and_plot(video_path, similarity_matrix, ground_truth):
     out.release()
 
 
-def main():
+def main(CREATE_VIDEO):
     for i, video in enumerate(sorted(os.listdir("wikihow_val"))):
         print(f"Processing video {i}/{len(os.listdir('wikihow_val')) - 1}")
 
@@ -188,8 +188,6 @@ def main():
         if not GROUND_TRUTH:
             print(f"Skipping video {video}")
             continue
-
-        CREATE_VIDEO = False
 
         # Load CLIP and its preprocess
         model, preprocess, device = load_model()
@@ -220,4 +218,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    CREATE_VIDEO = False
+
+    main(CREATE_VIDEO)
