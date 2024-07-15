@@ -1,6 +1,7 @@
 venv/
 *__pycache__/
 embeddings/
+*.pth
 *.avi
 *.mp4
 *.png
