@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from model import Adapter
+from model import Adapter_Conv1D, Adapter_Transformer
 
 
 class EmbeddingsDataset(Dataset):
@@ -46,12 +46,33 @@ def pad_videos(videos):
     return padded_videos, masks
 
 
-def train(dataloader, device, epochs=100, lr=0.001, lambda_reg=0.1):
+def load_model(adapter):
+    if adapter == "conv1d":
+        return Adapter_Conv1D()
+    elif adapter == "transformer":
+        return Adapter_Transformer()
+
+
+def load_hyperparameters(adapter):
+    if adapter == "conv1d":
+        batch_size = 128
+        epochs = 501
+        lr = 5e-4
+        lambda_reg = 0.001
+    elif adapter == "transformer":
+        batch_size = 64
+        epochs = 301
+        lr = 5e-4
+        lambda_reg = 0.001
+    return batch_size, epochs, lr, lambda_reg
+
+
+def train(dataloader, adapter, device, epochs=100, lr=0.001, lambda_reg=0.1):
     # Initialize the network
-    adapt_net = Adapter().to(device)
+    adapt_net = load_model(adapter).to(device)
     adapt_net = nn.DataParallel(adapt_net)  # Wrap the model for data parallelism
     criterion = nn.MSELoss(reduction="none")
-    optimizer = optim.Adam(adapt_net.parameters(), lr=lr)
+    optimizer = optim.SGD(adapt_net.parameters(), lr=lr)
 
     for epoch in tqdm(range(epochs), desc="Epochs"):
         adapt_net.train()
@@ -69,6 +90,11 @@ def train(dataloader, device, epochs=100, lr=0.001, lambda_reg=0.1):
 
             # Forward pass
             att_scores = adapt_net(padded_videos.permute(0, 2, 1), masks)  # (B, F, 1)
+            # Fix: As of now, This layer produces a matrix of numbers between 0 and 1 (sigmoid).
+            # This means that regularizing this layer as we are doing below with torch.sum(att_scores...) only serves to produce small numbers, not few 1's as was our intention.
+            # This makes the regularization we are doing here useless, as we still have to binarize these scores later on.
+            # If we binarize scores here, we would need to provide a desired summary length...
+            # TODO: Find alternative to this.
 
             # Compute Out = M @ Att
             Out = torch.matmul(padded_videos.permute(0, 2, 1), att_scores).squeeze(-1)  # shape (B, E)
@@ -97,28 +123,30 @@ def train(dataloader, device, epochs=100, lr=0.001, lambda_reg=0.1):
             loss_r = reg_epoch_loss / len(dataloader)
             tqdm.write(f"Epoch [{epoch: >3}/{epochs}], Total Loss: {loss_t:.5f}\t --- L2 Loss: {loss_l:.5f}\t --- Reg Loss: {loss_r:.5f}")
 
+    # Save the trained model
+    model_save_path = f"model/adapter_{adapter}_model.pth"
+    torch.save(adapt_net.state_dict(), model_save_path)
+    print(f"Model saved to {model_save_path}")
+
     return adapt_net
 
 
 if __name__ == "__main__":
     video_dir = "embeddings/video"
     global_dir = "embeddings/global"
+    adapter = "transformer"  # "conv1d" / "transformer"
 
+    # Hyperparameters
+    batch_size, epochs, lr, lambda_reg = load_hyperparameters(adapter)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load the data
     dataset = EmbeddingsDataset(video_dir, global_dir)
-    dataloader = DataLoader(dataset, batch_size=128, shuffle=True, collate_fn=lambda x: list(zip(*x)))
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=lambda x: list(zip(*x)))
     # collate_fn is used so that you don't have to manually extract and process each type of data within your training loop
     # WITHOUT vs WITH collate_fn:
     # [(video1, text1), (video2, text2)]
     # [(video1, video2), (text1, text2)]
 
     # Train the model
-    epochs = 501
-    lr = 5e-4
-    lambda_reg = 0.001
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    adapt_net = train(dataloader, device, epochs=epochs, lr=lr, lambda_reg=lambda_reg)
-
-    # Save the trained model
-    model_save_path = "model/adapter_model.pth"
-    torch.save(adapt_net.state_dict(), model_save_path)
-    print(f"Model saved to {model_save_path}")
+    train(dataloader, adapter, device, epochs=epochs, lr=lr, lambda_reg=lambda_reg)

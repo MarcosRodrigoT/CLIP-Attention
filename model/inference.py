@@ -5,11 +5,18 @@ import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import precision_score, recall_score, f1_score
-from model import Adapter
+from model import Adapter_Conv1D, Adapter_Transformer
 
 
-def load_trained_model(model_path, device):
-    model = Adapter().to(device)
+def load_model(adapter):
+    if adapter == "conv1d":
+        return Adapter_Conv1D()
+    elif adapter == "transformer":
+        return Adapter_Transformer()
+
+
+def load_trained_model(adapter, model_path, device):
+    model = load_model(adapter).to(device)
     model = nn.DataParallel(model)  # Wrap the model for data parallelism
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
@@ -49,11 +56,12 @@ def summarize_video(video_embeddings_path, model, device, summar_len):
 
 if __name__ == "__main__":
     SUMMAR_LEN = 0.6  # Desired summary length (e.g., 20% of the frames)
+    ADAPTER = "conv1d"  # "conv1d" / "transformer"
 
     # Load the trained model
-    model_path = "model/adapter_model.pth"
+    model_path = f"model/adapter_{ADAPTER}_model.pth"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_trained_model(model_path, device)
+    model = load_trained_model(ADAPTER, model_path, device)
 
     videos = sorted(os.listdir("embeddings/video/"))
     precisions = []

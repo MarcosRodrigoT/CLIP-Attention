@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class Adapter(nn.Module):
+class Adapter_Conv1D(nn.Module):
     def __init__(self):
         super().__init__()
         self.attention = nn.Sequential(
@@ -25,6 +25,37 @@ class Adapter(nn.Module):
         return att_scores
 
 
+class Adapter_Transformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.transformer_layer = nn.TransformerEncoderLayer(d_model=512, nhead=4, dim_feedforward=1024, activation="relu", batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(self.transformer_layer, num_layers=1)
+        self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, M, mask):
+        # M: Batch of frames embeddings' Matrices -> (B, E, F)
+        # mask -> (B, F)
+        M = M.permute(0, 2, 1)  # (B, F, E) as required by the transformer with batch_first=True
+
+        # Apply the transformer encoder
+        M_transformed = self.transformer_encoder(M)  # (B, F, E)
+
+        # Apply the final fully connected layers to compute attention scores
+        att_scores = self.fc(M_transformed)  # (B, F, 1)
+
+        # Apply mask to attention scores
+        att_scores = att_scores * mask.unsqueeze(-1)
+
+        return att_scores
+
+
 if __name__ == "__main__":
     # Example batch with 3 videos, each having different numbers of frames
     video_lengths = [100, 80, 60]
@@ -41,7 +72,7 @@ if __name__ == "__main__":
         mask[i, :length] = 1  # Set the valid frames mask to 1
 
     # Initialize the network
-    adapt_net = Adapter()
+    adapt_net = Adapter_Conv1D()
     adapt_net.eval()
 
     # Forward pass
