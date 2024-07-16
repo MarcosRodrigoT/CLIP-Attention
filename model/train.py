@@ -1,10 +1,22 @@
 import os
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from model import Adapter_MLP, Adapter_Conv1D, Adapter_Transformer
+
+
+def set_seeds(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 class EmbeddingsDataset(Dataset):
@@ -115,10 +127,6 @@ def train(dataloader, adapter, device, epochs=100, lr=0.001, lambda_reg_l1=0.1, 
             loss = criterion(Out, text_descriptions)  # (B, E)
             loss = loss.mean(dim=1)  # Reduce over features dimension (B)
             loss = (loss * masks[:, 0].to(device)).mean()  # Mask out padded frames (scalar)
-            # Fix: The L2-norm is not the same as the MSE loss. I need to compute ||Out - T_G||_2^2
-            # -> First: compute Diff = Out - T_G
-            # -> Second: compute the L2-norm of Diff
-            # -> Third: square it
 
             # Add L1 and L2 regularization terms
             l1_reg = lambda_reg_l1 * torch.sum(torch.abs(att_scores.squeeze(-1)))
@@ -157,6 +165,8 @@ def train(dataloader, adapter, device, epochs=100, lr=0.001, lambda_reg_l1=0.1, 
 
 
 if __name__ == "__main__":
+    set_seeds(42)  # Set seeds for reproducibility
+
     video_dir = "embeddings/video"
     global_dir = "embeddings/global"
     adapter = "mlp"  # "mlp" / "conv1d" / "transformer"

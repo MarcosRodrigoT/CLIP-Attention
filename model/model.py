@@ -1,5 +1,20 @@
+import random
+import numpy as np
 import torch
 import torch.nn as nn
+
+
+def set_seeds(seed=42):
+    """
+    Set random seeds for reproducibility.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 class Adapter_MLP(nn.Module):
@@ -83,6 +98,8 @@ class Adapter_Transformer(nn.Module):
 
 
 if __name__ == "__main__":
+    set_seeds(42)  # Set seeds for reproducibility
+
     # Example batch with 3 videos, each having different numbers of frames
     video_lengths = [100, 80, 60]
     max_length = max(video_lengths)
