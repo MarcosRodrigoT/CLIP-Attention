@@ -2,10 +2,37 @@ import torch
 import torch.nn as nn
 
 
+class Adapter_MLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, M, mask):
+        # M: Batch of frames embeddings' Matrices -> (B, E, F)
+        # mask -> (B, F)
+        B, E, F = M.shape
+        M = M.permute(0, 2, 1).reshape(B * F, E)  # (B*F, E)
+
+        # Apply MLP to each frame's embedding
+        att_scores = self.mlp(M)  # (B*F, 1)
+        att_scores = att_scores.reshape(B, F, 1)  # (B, F, 1)
+
+        # Apply mask to attention scores
+        att_scores = att_scores * mask.unsqueeze(-1)
+        return att_scores
+
+
 class Adapter_Conv1D(nn.Module):
     def __init__(self):
         super().__init__()
-        self.attention = nn.Sequential(
+        self.convs = nn.Sequential(
             nn.Conv1d(512, 256, kernel_size=1),
             nn.ReLU(),
             nn.Conv1d(256, 128, kernel_size=1),
@@ -17,7 +44,7 @@ class Adapter_Conv1D(nn.Module):
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
         # mask -> (B, F)
-        att_scores = self.attention(M)  # (B, 1, F)
+        att_scores = self.convs(M)  # (B, 1, F)
         att_scores = att_scores.permute(0, 2, 1)  # (B, F, 1)
 
         # Apply mask to attention scores
@@ -52,7 +79,6 @@ class Adapter_Transformer(nn.Module):
 
         # Apply mask to attention scores
         att_scores = att_scores * mask.unsqueeze(-1)
-
         return att_scores
 
 

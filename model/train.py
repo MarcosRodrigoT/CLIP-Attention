@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from model import Adapter_Conv1D, Adapter_Transformer
+from model import Adapter_MLP, Adapter_Conv1D, Adapter_Transformer
 
 
 class EmbeddingsDataset(Dataset):
@@ -47,14 +47,21 @@ def pad_videos(videos):
 
 
 def load_model(adapter):
-    if adapter == "conv1d":
+    if adapter == "mlp":
+        return Adapter_MLP()
+    elif adapter == "conv1d":
         return Adapter_Conv1D()
     elif adapter == "transformer":
         return Adapter_Transformer()
 
 
 def load_hyperparameters(adapter):
-    if adapter == "conv1d":
+    if adapter == "mlp":
+        batch_size = 200
+        epochs = 201
+        lr = 1e-5
+        lambda_reg = 0.001
+    elif adapter == "conv1d":
         batch_size = 128
         epochs = 501
         lr = 5e-4
@@ -134,7 +141,7 @@ def train(dataloader, adapter, device, epochs=100, lr=0.001, lambda_reg=0.1):
 if __name__ == "__main__":
     video_dir = "embeddings/video"
     global_dir = "embeddings/global"
-    adapter = "transformer"  # "conv1d" / "transformer"
+    adapter = "mlp"  # "mlp" / "conv1d" / "transformer"
 
     # Hyperparameters
     batch_size, epochs, lr, lambda_reg = load_hyperparameters(adapter)
