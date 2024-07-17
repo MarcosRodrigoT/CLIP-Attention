@@ -114,11 +114,6 @@ def train(dataloader, adapter, device, epochs=100, lr=0.001, lambda_reg_l1=0.1, 
 
             # Forward pass
             att_scores = adapt_net(padded_videos.permute(0, 2, 1), masks)  # (B, F, 1)
-            # TODO: As of now, This layer produces a matrix of numbers between 0 and 1 (sigmoid).
-            # This means that regularizing this layer as we are doing below with torch.sum(att_scores...) only serves to produce small numbers, not few 1's as was our intention.
-            # This makes the regularization we are doing here useless, as we still have to binarize these scores later on.
-            # If we binarize scores here, we would need to provide a desired summary length...
-            # Find alternative to this.
 
             # Compute Out = M @ Att
             Out = torch.matmul(padded_videos.permute(0, 2, 1), att_scores).squeeze(-1)  # shape (B, E)
