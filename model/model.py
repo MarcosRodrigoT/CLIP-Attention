@@ -67,6 +67,35 @@ class Adapter_Conv1D(nn.Module):
         return att_scores
 
 
+class Adapter_Conv2D(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv2d_layers = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=(3, 3), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=(3, 3), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(32, 1, kernel_size=(3, 3), padding=(1, 1)),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, M, mask):
+        # M: Batch of frames embeddings' Matrices -> (B, E, F)
+        # mask -> (B, F)
+        M = M.unsqueeze(1)  # Add a channel dimension -> (B, 1, E, F)
+
+        # Apply 2D convolutions
+        att_scores = self.conv2d_layers(M)  # (B, 1, E, F)
+
+        # Collapse the embedding dimension
+        att_scores = att_scores.mean(dim=2)  # (B, 1, F)
+        att_scores = att_scores.permute(0, 2, 1)  # (B, F, 1)
+
+        # Apply mask to attention scores
+        att_scores = att_scores * mask.unsqueeze(-1)
+        return att_scores
+
+
 class Adapter_Transformer(nn.Module):
     def __init__(self):
         super().__init__()

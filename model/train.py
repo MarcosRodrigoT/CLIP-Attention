@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from model import Adapter_MLP, Adapter_Conv1D, Adapter_Transformer
+from model import Adapter_MLP, Adapter_Conv1D, Adapter_Conv2D, Adapter_Transformer
 
 
 def set_seeds(seed=42):
@@ -63,6 +63,8 @@ def load_model(adapter):
         return Adapter_MLP()
     elif adapter == "conv1d":
         return Adapter_Conv1D()
+    elif adapter == "conv2d":
+        return Adapter_Conv2D()
     elif adapter == "transformer":
         return Adapter_Transformer()
 
@@ -77,6 +79,12 @@ def load_hyperparameters(adapter):
     elif adapter == "conv1d":
         batch_size = 128
         epochs = 501
+        lr = 5e-4
+        lambda_reg_l1 = 0.001
+        lambda_reg_l2 = 0.001
+    elif adapter == "conv2d":
+        batch_size = 8
+        epochs = 201
         lr = 5e-4
         lambda_reg_l1 = 0.001
         lambda_reg_l2 = 0.001
@@ -164,7 +172,7 @@ if __name__ == "__main__":
 
     video_dir = "embeddings/video"
     global_dir = "embeddings/global"
-    adapter = "mlp"  # "mlp" / "conv1d" / "transformer"
+    adapter = "conv2d"  # "mlp" / "conv1d" / "conv2d" / "transformer"
 
     # Hyperparameters
     batch_size, epochs, lr, lambda_reg_l1, lambda_reg_l2 = load_hyperparameters(adapter)
