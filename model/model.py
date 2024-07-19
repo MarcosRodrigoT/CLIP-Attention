@@ -56,6 +56,16 @@ class Adapter_Conv1D(nn.Module):
             nn.Sigmoid(),
         )
 
+    # TODO: I leave this here just as a remainder
+    #     self._initialize_weights()
+
+    # def _initialize_weights(self):
+    #     for m in self.modules():
+    #         if isinstance(m, nn.Conv1d):
+    #             nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+    #             if m.bias is not None:
+    #                 nn.init.constant_(m.bias, 0)
+
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
         # mask -> (B, F)

@@ -21,7 +21,7 @@ def load_model(adapter):
 
 def load_trained_model(adapter, model_path, device):
     model = load_model(adapter).to(device)
-    model = nn.DataParallel(model)  # Wrap the model for data parallelism
+    # model = nn.DataParallel(model)  # Wrap the model for data parallelism
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     return model
@@ -42,6 +42,8 @@ def summarize_video(video_embeddings_path, model, device, summar_len):
         att_scores = model(video_embeddings, mask)  # (1, F, 1)
         att_scores = att_scores.squeeze(0).squeeze(-1)  # (F,)
 
+    # print(f"************ [Min, Max] Attention Scores:  [{min(att_scores.cpu().numpy())}, {max(att_scores.cpu().numpy())}]")
+
     # Determine the threshold to convert attention scores to binary values
     num_frames = att_scores.shape[0]
     num_summary_frames = int(num_frames * summar_len)
@@ -60,7 +62,7 @@ def summarize_video(video_embeddings_path, model, device, summar_len):
 
 if __name__ == "__main__":
     SUMMAR_LEN = 0.6  # Desired summary length (e.g., 60% of the frames)
-    ADAPTER = "conv2d"  # "mlp" / "conv1d" / "conv2d" / "transformer"
+    ADAPTER = "conv1d"  # "mlp" / "conv1d" / "conv2d" / "transformer"
 
     # Load the trained model
     model_path = f"model/adapter_{ADAPTER}_model.pth"
