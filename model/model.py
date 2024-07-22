@@ -5,14 +5,11 @@ import torch.nn as nn
 
 
 def set_seeds(seed=42):
-    """
-    Set random seeds for reproducibility.
-    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -26,8 +23,8 @@ class Adapter_MLP(nn.Module):
             nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, 1),
-            nn.Sigmoid(),
         )
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
@@ -38,6 +35,9 @@ class Adapter_MLP(nn.Module):
         # Apply MLP to each frame's embedding
         att_scores = self.mlp(M)  # (B*F, 1)
         att_scores = att_scores.reshape(B, F, 1)  # (B, F, 1)
+
+        # Softmax scores along F axis
+        att_scores = self.softmax(att_scores)
 
         # Apply mask to attention scores
         att_scores = att_scores * mask.unsqueeze(-1)
@@ -53,10 +53,10 @@ class Adapter_Conv1D(nn.Module):
             nn.Conv1d(256, 128, kernel_size=1),
             nn.ReLU(),
             nn.Conv1d(128, 1, kernel_size=1),
-            nn.Sigmoid(),
+            nn.Softmax(dim=2),
         )
 
-    # TODO: I leave this here just as a remainder
+    # TODO: I leave this here just in case I want to try a different initialization
     #     self._initialize_weights()
 
     # def _initialize_weights(self):
@@ -86,8 +86,8 @@ class Adapter_Conv2D(nn.Module):
             nn.Conv2d(16, 32, kernel_size=(3, 3), padding=(1, 1)),
             nn.ReLU(),
             nn.Conv2d(32, 1, kernel_size=(3, 3), padding=(1, 1)),
-            nn.Sigmoid(),
         )
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
@@ -100,6 +100,9 @@ class Adapter_Conv2D(nn.Module):
         # Collapse the embedding dimension
         att_scores = att_scores.mean(dim=2)  # (B, 1, F)
         att_scores = att_scores.permute(0, 2, 1)  # (B, F, 1)
+
+        # Softmax scores along F axis
+        att_scores = self.softmax(att_scores)
 
         # Apply mask to attention scores
         att_scores = att_scores * mask.unsqueeze(-1)
@@ -117,7 +120,7 @@ class Adapter_Transformer(nn.Module):
             nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, 1),
-            nn.Sigmoid(),
+            nn.Softmax(dim=1),
         )
 
     def forward(self, M, mask):

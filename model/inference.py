@@ -42,7 +42,8 @@ def summarize_video(video_embeddings_path, model, device, summar_len):
         att_scores = model(video_embeddings, mask)  # (1, F, 1)
         att_scores = att_scores.squeeze(0).squeeze(-1)  # (F,)
 
-    # print(f"************ [Min, Max] Attention Scores:  [{min(att_scores.cpu().numpy())}, {max(att_scores.cpu().numpy())}]")
+    # print(f"************ [Min, Max] Attention Scores:  [{torch.min(att_scores)}, {torch.max(att_scores)}]")
+    # print(f"************ Sum of Attention Scores:  {torch.sum(att_scores)}")
 
     # Determine the threshold to convert attention scores to binary values
     num_frames = att_scores.shape[0]
