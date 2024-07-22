@@ -196,6 +196,11 @@ def train(
             # Compute Out = M @ Att
             Out = torch.matmul(padded_videos.permute(0, 2, 1), att_scores).squeeze(-1)  # (B, E)
 
+            # Normalize Out by dividing it by the total number of non-dummy frames
+            Out = Out.permute(1, 0)  # (E, B)
+            Out = Out / torch.sum(masks, dim=1)  # (E, B)
+            Out = Out.permute(1, 0)  # (B, E)
+
             if loss_fn == "mse":
                 # Compute MSE loss
                 loss = criterion(Out, text_descriptions)  # (B, E)
