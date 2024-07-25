@@ -103,7 +103,7 @@ def load_hyperparameters(adapter):
         lr = 1e-3
         lambda_reg_l1 = 0
         lambda_reg_l2 = 0
-        lambda_reg_order = 0.01
+        lambda_reg_order = 6
         optimizer_ = "adam"  # "sgd" / "adam"
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -250,8 +250,11 @@ def train(
             mask_ones = torch.arange(num_frames).to(device).expand(batch_size, num_frames) < num_ones.unsqueeze(1)  # (B, F)
             dummy_GT = torch.zeros_like(padded_ground_truth)  # (B, F)
             dummy_GT[mask_ones] = 1.0  # (B, F)
-            # Compute regularization loss
+            # Normalize dummy_GT (by dividing by num_ones or by applying Softmax)
+            dummy_GT /= num_ones.unsqueeze(1)  # (B, F)
+            # Compute regularization loss (using MSE or L2)
             order_reg = lambda_reg_order * nn.MSELoss()(sorted_att_scores, dummy_GT)  # (scalar)
+            # order_reg = lambda_reg_order * torch.sum((sorted_att_scores - dummy_GT) ** 2)  # (scalar)
 
             # Compute total losses
             total_loss = loss + reg_term + order_reg
