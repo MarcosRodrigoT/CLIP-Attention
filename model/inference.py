@@ -61,7 +61,7 @@ def summarize_video(video_embeddings_path, model, device, summar_len):
     return binary_att_scores
 
 
-if __name__ == "__main__":
+def run_inference():
     SUMMAR_LEN = 0.6  # Desired summary length (e.g., 60% of the frames)
     ADAPTER = "conv1d"  # "mlp" / "conv1d" / "conv2d" / "transformer"
 
@@ -108,6 +108,11 @@ if __name__ == "__main__":
     avg_fscore = np.mean(fscores)
 
     # Print some metrics
-    print(f"Average Precision: {avg_precision * 100:.2f}%")
-    print(f"Average Recall: {avg_recall * 100:.2f}%")
-    print(f"Average F-Score: {avg_fscore * 100:.2f}%")
+    print("\nInference results on WikiHow dataset:")
+    print(f"- Average Precision: {avg_precision * 100:.2f}%")
+    print(f"- Average Recall: {avg_recall * 100:.2f}%")
+    print(f"- Average F-Score: {avg_fscore * 100:.2f}%")
+
+
+if __name__ == "__main__":
+    run_inference()

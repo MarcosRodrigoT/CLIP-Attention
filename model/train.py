@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from model import Adapter_MLP, Adapter_Conv1D, Adapter_Conv2D, Adapter_Transformer
+from inference import run_inference
 
 
 def set_seeds(seed=42):
@@ -250,7 +251,7 @@ def train(
             mask_ones = torch.arange(num_frames).to(device).expand(batch_size, num_frames) < num_ones.unsqueeze(1)  # (B, F)
             dummy_GT = torch.zeros_like(padded_ground_truth)  # (B, F)
             dummy_GT[mask_ones] = 1.0  # (B, F)
-            # Normalize dummy_GT (by dividing by num_ones or by applying Softmax)
+            # Normalize dummy_GT
             dummy_GT /= num_ones.unsqueeze(1)  # (B, F)
             # Compute regularization loss (using MSE or L2)
             order_reg = lambda_reg_order * nn.MSELoss()(sorted_att_scores, dummy_GT)  # (scalar)
@@ -292,6 +293,10 @@ def train(
     model_save_path = f"model/adapter_{adapter}_model.pth"
     torch.save(adapt_net.state_dict(), model_save_path)
     print(f"Model saved to {model_save_path}")
+
+    # TODO: Pass the adapter to run_inference() so I don't have to change it in both modules
+    # Run inference on WikiHow dataset
+    run_inference()
 
     return adapt_net
 
