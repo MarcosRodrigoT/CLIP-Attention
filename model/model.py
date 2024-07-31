@@ -15,7 +15,7 @@ def set_seeds(seed=42):
 
 
 class Adapter_MLP(nn.Module):
-    def __init__(self):
+    def __init__(self, initial_temperature=1.0):
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(512, 256),
@@ -24,6 +24,7 @@ class Adapter_MLP(nn.Module):
             nn.ReLU(),
             nn.Linear(128, 1),
         )
+        self.temperature = nn.Parameter(torch.tensor(initial_temperature))
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, M, mask):
@@ -36,6 +37,9 @@ class Adapter_MLP(nn.Module):
         att_scores = self.mlp(M)  # (B*F, 1)
         att_scores = att_scores.reshape(B, F, 1)  # (B, F, 1)
 
+        # Apply temperature to the attention scores
+        att_scores = att_scores / self.temperature
+
         # Softmax scores along F axis
         att_scores = self.softmax(att_scores)
 
@@ -45,7 +49,7 @@ class Adapter_MLP(nn.Module):
 
 
 class Adapter_Conv1D(nn.Module):
-    def __init__(self):
+    def __init__(self, initial_temperature=1.0):
         super().__init__()
         self.convs = nn.Sequential(
             nn.Conv1d(512, 256, kernel_size=1),
@@ -53,8 +57,9 @@ class Adapter_Conv1D(nn.Module):
             nn.Conv1d(256, 128, kernel_size=1),
             nn.ReLU(),
             nn.Conv1d(128, 1, kernel_size=1),
-            nn.Softmax(dim=2),
         )
+        self.temperature = nn.Parameter(torch.tensor(initial_temperature))
+        self.softmax = nn.Softmax(dim=2)
 
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
@@ -62,13 +67,19 @@ class Adapter_Conv1D(nn.Module):
         att_scores = self.convs(M)  # (B, 1, F)
         att_scores = att_scores.permute(0, 2, 1)  # (B, F, 1)
 
+        # Apply temperature to the attention scores
+        att_scores = att_scores / self.temperature
+
+        # Apply softmax
+        att_scores = self.softmax(att_scores)
+
         # Apply mask to attention scores
         att_scores = att_scores * mask.unsqueeze(-1)
         return att_scores
 
 
 class Adapter_Conv2D(nn.Module):
-    def __init__(self):
+    def __init__(self, initial_temperature=1.0):
         super().__init__()
         self.conv2d_layers = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=(3, 3), padding=(1, 1)),
@@ -77,6 +88,7 @@ class Adapter_Conv2D(nn.Module):
             nn.ReLU(),
             nn.Conv2d(32, 1, kernel_size=(3, 3), padding=(1, 1)),
         )
+        self.temperature = nn.Parameter(torch.tensor(initial_temperature))
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, M, mask):
@@ -91,6 +103,9 @@ class Adapter_Conv2D(nn.Module):
         att_scores = att_scores.mean(dim=2)  # (B, 1, F)
         att_scores = att_scores.permute(0, 2, 1)  # (B, F, 1)
 
+        # Apply temperature to the attention scores
+        att_scores = att_scores / self.temperature
+
         # Softmax scores along F axis
         att_scores = self.softmax(att_scores)
 
@@ -100,7 +115,7 @@ class Adapter_Conv2D(nn.Module):
 
 
 class Adapter_Transformer(nn.Module):
-    def __init__(self):
+    def __init__(self, initial_temperature=1.0):
         super().__init__()
         self.transformer_layer = nn.TransformerEncoderLayer(d_model=512, nhead=4, dim_feedforward=1024, activation="relu", batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(self.transformer_layer, num_layers=1)
@@ -110,8 +125,9 @@ class Adapter_Transformer(nn.Module):
             nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, 1),
-            nn.Softmax(dim=1),
         )
+        self.temperature = nn.Parameter(torch.tensor(initial_temperature))
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, M, mask):
         # M: Batch of frames embeddings' Matrices -> (B, E, F)
@@ -123,6 +139,12 @@ class Adapter_Transformer(nn.Module):
 
         # Apply the final fully connected layers to compute attention scores
         att_scores = self.fc(M_transformed)  # (B, F, 1)
+
+        # Apply temperature to the attention scores
+        att_scores = att_scores / self.temperature
+
+        # Softmax scores along F axis
+        att_scores = self.softmax(att_scores)
 
         # Apply mask to attention scores
         att_scores = att_scores * mask.unsqueeze(-1)

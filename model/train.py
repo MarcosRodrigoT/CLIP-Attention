@@ -104,7 +104,7 @@ def load_hyperparameters(adapter):
         lr = 1e-3
         lambda_reg_l1 = 0
         lambda_reg_l2 = 0
-        lambda_reg_order = 6
+        lambda_reg_order = 0.01
         optimizer_ = "adam"  # "sgd" / "adam"
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -119,7 +119,7 @@ def load_hyperparameters(adapter):
         optimizer_ = "adam"  # "sgd" / "adam"
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        multi_gpu = False
+        multi_gpu = True
     elif adapter == "transformer":
         batch_size = 64
         epochs = 201
@@ -130,7 +130,7 @@ def load_hyperparameters(adapter):
         optimizer_ = "adam"  # "sgd" / "adam"
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        multi_gpu = False
+        multi_gpu = True
     return batch_size, epochs, lr, lambda_reg_l1, lambda_reg_l2, lambda_reg_order, optimizer_, loss_fn, device, multi_gpu
 
 
@@ -196,7 +196,7 @@ def train(
         reg_epoch_loss = 0
         reg_epoch_loss_l1 = 0
         reg_epoch_loss_l2 = 0
-        reg_epoch_loss_order = 0
+        reg_epoch_loss_gt = 0
 
         for batch in tqdm(dataloader, desc="Batches", leave=False):
             videos, text_descriptions, ground_truth = batch
@@ -231,7 +231,7 @@ def train(
             if loss_fn == "mse":
                 # Compute MSE loss
                 loss = criterion(Out, text_descriptions)  # (B, E)
-                loss = loss.mean()  # Reduce over features dimension (scalar)
+                loss = loss.mean()  # Reduce over features and batch dimension (scalar)
             elif loss_fn == "cos":
                 # Compute cosine similarity loss
                 loss = 1 - criterion(Out, text_descriptions)  # (B,)
@@ -242,23 +242,15 @@ def train(
             l2_reg = lambda_reg_l2 * torch.sum(att_scores.squeeze(-1) ** 2)
             reg_term = l1_reg + l2_reg
 
-            # Add regularization loss based on GT and Att order
-            # Sort Att
-            sorted_att_scores, sorted_indices = torch.sort(att_scores.squeeze(-1), descending=True)  # (B, F) / (B, F)
-            # Create dummy GT with the number of HL frames in the videos
-            batch_size, num_frames = padded_ground_truth.shape  # (B) / (F)  -> The last batch may have a smaller B
+            # Add regularization loss based on GT and Att
+            # Normalize GT
             num_ones = torch.sum(padded_ground_truth, dim=1)  # (B)
-            mask_ones = torch.arange(num_frames).to(device).expand(batch_size, num_frames) < num_ones.unsqueeze(1)  # (B, F)
-            dummy_GT = torch.zeros_like(padded_ground_truth)  # (B, F)
-            dummy_GT[mask_ones] = 1.0  # (B, F)
-            # Normalize dummy_GT
-            dummy_GT /= num_ones.unsqueeze(1)  # (B, F)
-            # Compute regularization loss (using MSE or L2)
-            order_reg = lambda_reg_order * nn.MSELoss()(sorted_att_scores, dummy_GT)  # (scalar)
-            # order_reg = lambda_reg_order * torch.sum((sorted_att_scores - dummy_GT) ** 2)  # (scalar)
+            padded_ground_truth /= num_ones.unsqueeze(1)  # (B, F)
+            # Compute regularization loss
+            gt_reg = lambda_reg_order * nn.CrossEntropyLoss()(att_scores.squeeze(-1), padded_ground_truth)  # (scalar)
 
             # Compute total losses
-            total_loss = loss + reg_term + order_reg
+            total_loss = loss + reg_term + gt_reg
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -270,7 +262,7 @@ def train(
             reg_epoch_loss += reg_term.item()
             reg_epoch_loss_l1 += l1_reg.item()
             reg_epoch_loss_l2 += l2_reg.item()
-            reg_epoch_loss_order += order_reg.item()
+            reg_epoch_loss_gt += gt_reg.item()
 
         if epoch % 10 == 0:
             loss_t = total_epoch_loss / len(dataloader)
@@ -278,7 +270,7 @@ def train(
             loss_r = reg_epoch_loss / len(dataloader)
             loss_r_l1 = reg_epoch_loss_l1 / len(dataloader)
             loss_r_l2 = reg_epoch_loss_l2 / len(dataloader)
-            loss_r_order = reg_epoch_loss_order / len(dataloader)
+            loss_r_gt = reg_epoch_loss_gt / len(dataloader)
             tqdm.write(
                 f"Epoch [{epoch: >3}/{epochs}], "
                 f"Total Loss: {loss_t: >7.4f} "
@@ -286,7 +278,7 @@ def train(
                 f"--- Reg Loss: {loss_r: >7.4f} "
                 f"--- Reg Loss L1: {loss_r_l1: >7.4f} "
                 f"--- Reg Loss L2: {loss_r_l2: >7.4f} "
-                f"--- Reg Order: {loss_r_order: >7.4f}"
+                f"--- Reg GT: {loss_r_gt: >7.4f}"
             )
 
     # Save the trained model

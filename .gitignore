@@ -1,7 +1,7 @@
 venv/
 *__pycache__/
 embeddings/
-model/*.txt
+model/training_results/
 *.pth
 *.avi
 *.mp4
