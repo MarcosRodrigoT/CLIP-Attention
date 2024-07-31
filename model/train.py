@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from model import Adapter_MLP, Adapter_Conv1D, Adapter_Conv2D, Adapter_Transformer
+from model import Adapter_MLP, Adapter_Conv1D, Adapter_Conv2D, Adapter_Transformer, Textual_Adapter
 from inference import run_inference
 
 
@@ -98,6 +98,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = False
+        alternation_interval = 2
     elif adapter == "conv1d":
         batch_size = 128
         epochs = 201
@@ -109,6 +110,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = False
+        alternation_interval = 2
     elif adapter == "conv2d":
         batch_size = 8
         epochs = 201
@@ -120,6 +122,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = True
+        alternation_interval = 2
     elif adapter == "transformer":
         batch_size = 64
         epochs = 201
@@ -131,7 +134,8 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = True
-    return batch_size, epochs, lr, lambda_reg_l1, lambda_reg_l2, lambda_reg_order, optimizer_, loss_fn, device, multi_gpu
+        alternation_interval = 2
+    return batch_size, epochs, lr, lambda_reg_l1, lambda_reg_l2, lambda_reg_order, optimizer_, loss_fn, device, multi_gpu, alternation_interval
 
 
 def load_criterion(loss_fn):
@@ -160,6 +164,7 @@ def train(
     optimizer_="adam",
     loss_fn="mse",
     multi_gpu=False,
+    alternation_interval=2,
 ):
     # Display training parameters
     print("Training parameters:")
@@ -171,8 +176,9 @@ def train(
     print(f"- Learning rate: {lr}")
     print(f"- Lambda reg L1: {lambda_reg_l1}")
     print(f"- Lambda reg L2: {lambda_reg_l2}")
-    print(f"- Lambda reg order: {lambda_reg_order}")
-    print(f"- Multi GPU: {multi_gpu}\n")
+    print(f"- Lambda reg GT: {lambda_reg_order}")
+    print(f"- Multi GPU: {multi_gpu}")
+    print(f"- Alternation interval: {alternation_interval}\n")
 
     # Load the data
     dataset = EmbeddingsDataset(video_dir, global_dir, gt_file)
@@ -183,20 +189,29 @@ def train(
     # [(video1, video2), (text1, text2)]
 
     # Initialize the network
-    adapt_net = load_model(adapter).to(device)
+    visual_adapter = load_model(adapter).to(device)
+    textual_adapter = Textual_Adapter().to(device)
+    
     if multi_gpu:
-        adapt_net = nn.DataParallel(adapt_net)  # Wrap the model for data parallelism
-    criterion = load_criterion(loss_fn)
-    optimizer = load_optimizer(optimizer_, lr, model=adapt_net)
+        visual_adapter = nn.DataParallel(visual_adapter)
+        textual_adapter = nn.DataParallel(textual_adapter)
+
+    visual_criterion = load_criterion(loss_fn)
+    visual_optimizer = load_optimizer(optimizer_, lr, model=visual_adapter)
+
+    textual_criterion = load_criterion(loss_fn)
+    textual_optimizer = load_optimizer(optimizer_, lr, model=textual_adapter)
 
     for epoch in tqdm(range(epochs), desc="Epochs"):
-        adapt_net.train()
-        total_epoch_loss = 0
-        l2_epoch_loss = 0
-        reg_epoch_loss = 0
+        visual_adapter.train()
+        textual_adapter.train()
+        
+        visual_total_epoch_loss = 0
+        visual_epoch_loss = 0
         reg_epoch_loss_l1 = 0
         reg_epoch_loss_l2 = 0
         reg_epoch_loss_gt = 0
+        textual_epoch_loss = 0
 
         for batch in tqdm(dataloader, desc="Batches", leave=False):
             videos, text_descriptions, ground_truth = batch
@@ -217,7 +232,7 @@ def train(
             text_descriptions = text_descriptions.to(device)
 
             # Forward pass
-            att_scores = adapt_net(padded_videos.permute(0, 2, 1), masks)  # (B, F, 1)
+            att_scores = visual_adapter(padded_videos.permute(0, 2, 1), masks)  # (B, F, 1)
 
             # Compute Out = M @ Att
             Out = torch.matmul(padded_videos.permute(0, 2, 1), att_scores).squeeze(-1)  # (B, E)
@@ -227,20 +242,41 @@ def train(
             Out = Out / torch.sum(masks, dim=1)  # (E, B)
             Out = Out.permute(1, 0)  # (B, E)
 
+            # Train textual adapter
+            if epoch % alternation_interval == 0:  # Alternate every "alternation_interval" epochs
+                Out = Out.detach()  # Detach Out from the computation graph to use it as ground truth
+                Out_prime = textual_adapter(text_descriptions)  # Transform T_G
+
+                # Compute textual main loss (cosine similarity)
+                textual_loss = 1 - textual_criterion(Out_prime, Out)
+                textual_loss = textual_loss.mean()
+
+                # Backward pass and optimization for textual adapter
+                textual_optimizer.zero_grad()
+                textual_loss.backward()
+                textual_optimizer.step()
+
+                textual_epoch_loss += textual_loss.item()
+            
+            # Use Out_prime as ground truth for visual adapter
+            if epoch < alternation_interval:  # If we have not trained yet the textual adapter
+                Out_prime = text_descriptions
+            else:
+                Out_prime = textual_adapter(text_descriptions).detach()  # Detach Out_prime to use it as ground truth
+
             # Compute main loss
             if loss_fn == "mse":
                 # Compute MSE loss
-                loss = criterion(Out, text_descriptions)  # (B, E)
-                loss = loss.mean()  # Reduce over features and batch dimension (scalar)
+                visual_loss = visual_criterion(Out, Out_prime)  # (B, E)
+                visual_loss = visual_loss.mean()  # Reduce over features and batch dimension (scalar)
             elif loss_fn == "cos":
                 # Compute cosine similarity loss
-                loss = 1 - criterion(Out, text_descriptions)  # (B,)
-                loss = loss.mean()  # Average over the batch (scalar)
+                visual_loss = 1 - visual_criterion(Out, Out_prime)  # (B,)
+                visual_loss = visual_loss.mean()  # Average over the batch (scalar)
 
             # Add L1 and L2 regularization terms
             l1_reg = lambda_reg_l1 * torch.sum(torch.abs(att_scores.squeeze(-1)))
             l2_reg = lambda_reg_l2 * torch.sum(att_scores.squeeze(-1) ** 2)
-            reg_term = l1_reg + l2_reg
 
             # Add regularization loss based on GT and Att
             # Normalize GT
@@ -249,48 +285,52 @@ def train(
             # Compute regularization loss
             gt_reg = lambda_reg_order * nn.CrossEntropyLoss()(att_scores.squeeze(-1), padded_ground_truth)  # (scalar)
 
-            # Compute total losses
-            total_loss = loss + reg_term + gt_reg
+            # Compute total visual losses
+            visual_total_loss = visual_loss + l1_reg + l2_reg + gt_reg
 
             # Backward pass and optimization
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+            visual_optimizer.zero_grad()
+            visual_total_loss.backward()
+            visual_optimizer.step()
 
-            total_epoch_loss += total_loss.item()
-            l2_epoch_loss += loss.item()
-            reg_epoch_loss += reg_term.item()
+            visual_total_epoch_loss += visual_total_loss.item()
+            visual_epoch_loss += visual_loss.item()
             reg_epoch_loss_l1 += l1_reg.item()
             reg_epoch_loss_l2 += l2_reg.item()
             reg_epoch_loss_gt += gt_reg.item()
 
         if epoch % 10 == 0:
-            loss_t = total_epoch_loss / len(dataloader)
-            loss_l = l2_epoch_loss / len(dataloader)
-            loss_r = reg_epoch_loss / len(dataloader)
+            loss_T = visual_total_epoch_loss / len(dataloader)
+            loss_v = visual_epoch_loss / len(dataloader)
             loss_r_l1 = reg_epoch_loss_l1 / len(dataloader)
             loss_r_l2 = reg_epoch_loss_l2 / len(dataloader)
             loss_r_gt = reg_epoch_loss_gt / len(dataloader)
+            loss_t = textual_epoch_loss / len(dataloader)
             tqdm.write(
                 f"Epoch [{epoch: >3}/{epochs}], "
-                f"Total Loss: {loss_t: >7.4f} "
-                f"--- {loss_fn.upper()} Loss: {loss_l: >7.4f} "
-                f"--- Reg Loss: {loss_r: >7.4f} "
+                f"Total Loss: {loss_T: >7.4f} "
+                f"--- Visual Loss: {loss_v: >7.4f} "
                 f"--- Reg Loss L1: {loss_r_l1: >7.4f} "
                 f"--- Reg Loss L2: {loss_r_l2: >7.4f} "
-                f"--- Reg GT: {loss_r_gt: >7.4f}"
+                f"--- Reg GT: {loss_r_gt: >7.4f} "
+                f"--- Textual Loss: {loss_t: >7.4f}"
             )
 
-    # Save the trained model
-    model_save_path = f"model/adapter_{adapter}_model.pth"
-    torch.save(adapt_net.state_dict(), model_save_path)
-    print(f"Model saved to {model_save_path}")
+    # Save the trained visual adapter
+    model_save_path = f"model/adapter_{adapter}.pth"
+    torch.save(visual_adapter.state_dict(), model_save_path)
+    print(f"Visual adapter saved to {model_save_path}")
+    
+    # Save the trained textual adapter
+    model_save_path = f"model/adapter_textual.pth"
+    torch.save(textual_adapter.state_dict(), model_save_path)
+    print(f"Textual adapter saved to {model_save_path}")
 
     # TODO: Pass the adapter to run_inference() so I don't have to change it in both modules
     # Run inference on WikiHow dataset
     run_inference()
 
-    return adapt_net
+    return
 
 
 if __name__ == "__main__":
@@ -313,6 +353,7 @@ if __name__ == "__main__":
         loss_fn,
         device,
         multi_gpu,
+        alternation_interval,
     ) = load_hyperparameters(adapter)
 
     # Train the model
@@ -328,4 +369,5 @@ if __name__ == "__main__":
         optimizer_=optimizer_,
         loss_fn=loss_fn,
         multi_gpu=multi_gpu,
+        alternation_interval=alternation_interval,
     )

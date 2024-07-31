@@ -151,6 +151,21 @@ class Adapter_Transformer(nn.Module):
         return att_scores
 
 
+class Textual_Adapter(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 512),
+        )
+
+    def forward(self, T_G):
+        return self.fc(T_G)
+
+
 if __name__ == "__main__":
     set_seeds(42)  # Set seeds for reproducibility
 

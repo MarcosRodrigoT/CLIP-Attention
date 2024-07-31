@@ -30,9 +30,7 @@ def load_trained_model(adapter, model_path, device):
 def summarize_video(video_embeddings_path, model, device, summar_len):
     # Load the video embeddings
     video_embeddings = torch.load(video_embeddings_path).float().to(device)  # Convert to float32 and move to device
-
-    # Add batch dimension (1, F, E)
-    video_embeddings = video_embeddings.unsqueeze(0).permute(0, 2, 1)
+    video_embeddings = video_embeddings.unsqueeze(0).permute(0, 2, 1)  # Add batch dimension (1, F, E)
 
     # Create a mask (all ones since we have no padding)
     mask = torch.ones(video_embeddings.shape[2]).unsqueeze(0).to(device)
@@ -66,7 +64,7 @@ def run_inference():
     ADAPTER = "conv1d"  # "mlp" / "conv1d" / "conv2d" / "transformer"
 
     # Load the trained model
-    model_path = f"model/adapter_{ADAPTER}_model.pth"
+    model_path = f"model/adapter_{ADAPTER}.pth"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_trained_model(ADAPTER, model_path, device)
 
