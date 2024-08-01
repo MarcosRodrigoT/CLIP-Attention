@@ -98,7 +98,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = False
-        alternation_interval = 2
+        alternation_interval = 5
     elif adapter == "conv1d":
         batch_size = 128
         epochs = 201
@@ -110,7 +110,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = False
-        alternation_interval = 2
+        alternation_interval = 5
     elif adapter == "conv2d":
         batch_size = 8
         epochs = 201
@@ -122,7 +122,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = True
-        alternation_interval = 2
+        alternation_interval = 5
     elif adapter == "transformer":
         batch_size = 64
         epochs = 201
@@ -134,7 +134,7 @@ def load_hyperparameters(adapter):
         loss_fn = "cos"  # "mse" / "cos"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         multi_gpu = True
-        alternation_interval = 2
+        alternation_interval = 5
     return batch_size, epochs, lr, lambda_reg_l1, lambda_reg_l2, lambda_reg_order, optimizer_, loss_fn, device, multi_gpu, alternation_interval
 
 
@@ -242,8 +242,50 @@ def train(
             Out = Out / torch.sum(masks, dim=1)  # (E, B)
             Out = Out.permute(1, 0)  # (B, E)
 
-            # Train textual adapter
-            if epoch % alternation_interval == 0:  # Alternate every "alternation_interval" epochs
+            if epoch < alternation_interval:  # If we have not trained yet the textual adapter
+                Out_prime = text_descriptions
+            else:
+                Out_prime = textual_adapter(text_descriptions).detach()  # Detach Out_prime to use it as ground truth
+
+            if (epoch // alternation_interval) % 2 == 0:
+                # Train visual adapter
+                # Compute main loss
+                if loss_fn == "mse":
+                    # Compute MSE loss
+                    visual_loss = visual_criterion(Out, Out_prime)  # (B, E)
+                    visual_loss = visual_loss.mean()  # Reduce over features and batch dimension (scalar)
+                elif loss_fn == "cos":
+                    # Compute cosine similarity loss
+                    visual_loss = 1 - visual_criterion(Out, Out_prime)  # (B,)
+                    visual_loss = visual_loss.mean()  # Average over the batch (scalar)
+
+                # Add L1 and L2 regularization terms
+                l1_reg = lambda_reg_l1 * torch.sum(torch.abs(att_scores.squeeze(-1)))
+                l2_reg = lambda_reg_l2 * torch.sum(att_scores.squeeze(-1) ** 2)
+
+                # Add regularization loss based on GT and Att
+                # Normalize GT
+                num_ones = torch.sum(padded_ground_truth, dim=1)  # (B)
+                padded_ground_truth /= num_ones.unsqueeze(1)  # (B, F)
+                # Compute regularization loss
+                gt_reg = lambda_reg_order * nn.CrossEntropyLoss()(att_scores.squeeze(-1), padded_ground_truth)  # (scalar)
+
+                # Compute total visual losses
+                visual_total_loss = visual_loss + l1_reg + l2_reg + gt_reg
+
+                # Backward pass and optimization
+                visual_optimizer.zero_grad()
+                visual_total_loss.backward()
+                visual_optimizer.step()
+
+                visual_total_epoch_loss += visual_total_loss.item()
+                visual_epoch_loss += visual_loss.item()
+                reg_epoch_loss_l1 += l1_reg.item()
+                reg_epoch_loss_l2 += l2_reg.item()
+                reg_epoch_loss_gt += gt_reg.item()
+
+            else:
+                # Train textual adapter
                 Out = Out.detach()  # Detach Out from the computation graph to use it as ground truth
                 Out_prime = textual_adapter(text_descriptions)  # Transform T_G
 
@@ -257,49 +299,8 @@ def train(
                 textual_optimizer.step()
 
                 textual_epoch_loss += textual_loss.item()
-            
-            # Use Out_prime as ground truth for visual adapter
-            if epoch < alternation_interval:  # If we have not trained yet the textual adapter
-                Out_prime = text_descriptions
-            else:
-                Out_prime = textual_adapter(text_descriptions).detach()  # Detach Out_prime to use it as ground truth
 
-            # Compute main loss
-            if loss_fn == "mse":
-                # Compute MSE loss
-                visual_loss = visual_criterion(Out, Out_prime)  # (B, E)
-                visual_loss = visual_loss.mean()  # Reduce over features and batch dimension (scalar)
-            elif loss_fn == "cos":
-                # Compute cosine similarity loss
-                visual_loss = 1 - visual_criterion(Out, Out_prime)  # (B,)
-                visual_loss = visual_loss.mean()  # Average over the batch (scalar)
-
-            # Add L1 and L2 regularization terms
-            l1_reg = lambda_reg_l1 * torch.sum(torch.abs(att_scores.squeeze(-1)))
-            l2_reg = lambda_reg_l2 * torch.sum(att_scores.squeeze(-1) ** 2)
-
-            # Add regularization loss based on GT and Att
-            # Normalize GT
-            num_ones = torch.sum(padded_ground_truth, dim=1)  # (B)
-            padded_ground_truth /= num_ones.unsqueeze(1)  # (B, F)
-            # Compute regularization loss
-            gt_reg = lambda_reg_order * nn.CrossEntropyLoss()(att_scores.squeeze(-1), padded_ground_truth)  # (scalar)
-
-            # Compute total visual losses
-            visual_total_loss = visual_loss + l1_reg + l2_reg + gt_reg
-
-            # Backward pass and optimization
-            visual_optimizer.zero_grad()
-            visual_total_loss.backward()
-            visual_optimizer.step()
-
-            visual_total_epoch_loss += visual_total_loss.item()
-            visual_epoch_loss += visual_loss.item()
-            reg_epoch_loss_l1 += l1_reg.item()
-            reg_epoch_loss_l2 += l2_reg.item()
-            reg_epoch_loss_gt += gt_reg.item()
-
-        if epoch % 10 == 0:
+        if epoch % 1 == 0:
             loss_T = visual_total_epoch_loss / len(dataloader)
             loss_v = visual_epoch_loss / len(dataloader)
             loss_r_l1 = reg_epoch_loss_l1 / len(dataloader)
